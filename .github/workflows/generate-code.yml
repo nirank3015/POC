@@ -40,7 +40,7 @@ jobs:
           REPO="${{ github.repository }}"
           BRANCH="${{ env.BRANCH_NAME }}"
 
-          # Design doc — try filesystem first, fall back to GitHub API
+          # Design doc — try filesystem, then API, then fall back to requirement file
           DESIGN_DOC=""
           if [ -f "docs/design/${TICKET_ID}.md" ]; then
             DESIGN_DOC=$(cat "docs/design/${TICKET_ID}.md")
@@ -52,8 +52,22 @@ jobs:
               "https://api.github.com/repos/${REPO}/contents/docs/design/${TICKET_ID}.md?ref=${BRANCH}") || true
           fi
 
+          # Last resort: use the requirement file as the design doc
           if [ -z "$DESIGN_DOC" ]; then
-            echo "ERROR: Design doc not found for ${TICKET_ID}. Run the kickoff script to regenerate."
+            echo "Design doc not found — using requirement file as fallback..."
+            REQUIREMENT_FILE=$(curl -sf \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github.raw+json" \
+              "https://api.github.com/repos/${REPO}/contents/requirements/${TICKET_ID}.md?ref=${BRANCH}") || true
+            if [ -n "$REQUIREMENT_FILE" ]; then
+              DESIGN_DOC="$REQUIREMENT_FILE"
+            elif [ -f "requirements/${TICKET_ID}.md" ]; then
+              DESIGN_DOC=$(cat "requirements/${TICKET_ID}.md")
+            fi
+          fi
+
+          if [ -z "$DESIGN_DOC" ]; then
+            echo "ERROR: Neither design doc nor requirement file found for ${TICKET_ID}."
             exit 1
           fi
 
