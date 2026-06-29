@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.tdg.productcrud.entity.ProductEntityTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.255 s -- in com.tdg.productcrud.entity.ProductEntityTest

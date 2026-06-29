@@ -217,3 +217,182 @@ Seven feature specs are ready under `docs/enhancements/` — pick one up to exte
 | 5 | `05-global-exception-handling.md` | Richer error responses (validation, DB constraint errors) |
 | 6 | `06-auditing.md` | Track `createdBy` / `lastModifiedBy` automatically |
 | 7 | `07-input-validation.md` | Bean Validation on request DTOs |
+
+
+
+# Auto Dev Pipeline
+
+An autonomous development pipeline that takes a Markdown requirements file from any local directory, and drives it all the way to a merged PR — with two mandatory human review gates.
+
+---
+
+## Pipeline Overview
+
+```
+Local MD File
+     │
+     ▼
+[kickoff.sh] ──── Creates branch ──── Uploads MD ──── Triggers GH Action
+                                                              │
+                                                              ▼
+                                                   ┌─────────────────────┐
+                                                   │  Workflow 1         │
+                                                   │  Generate Design    │
+                                                   │  Doc (Claude API)   │
+                                                   └────────┬────────────┘
+                                                            │ Opens Design PR
+                                                            ▼
+                                              ┌─────────────────────────────┐
+                                              │  🧑 HUMAN GATE 1            │
+                                              │  Review design doc PR       │
+                                              │  /approve-design            │
+                                              │  /revise-design: <feedback> │
+                                              └────────────┬────────────────┘
+                                    ┌───────── revise ─────┘    │ approve
+                                    │  (Workflow 2 iterates)    ▼
+                                    │                  ┌─────────────────────┐
+                                    │                  │  Workflow 3         │
+                                    │                  │  Generate Code      │
+                                    │                  │  (Claude API)       │
+                                    │                  └────────┬────────────┘
+                                    │                           │ Opens Code PR
+                                    │                           ▼
+                                    │               ┌────────────────────────────┐
+                                    │               │  🧑 HUMAN GATE 2           │
+                                    │               │  Standard GitHub PR review │
+                                    │               │  /revise-code: <feedback>  │
+                                    └──── revise ───┤  (Workflow 4 iterates)     │
+                                                    │  Approve & Merge ✅        │
+                                                    └────────────────────────────┘
+```
+
+---
+
+## Setup
+
+### 1. GitHub Secrets
+
+Add these to your repository (Settings → Secrets → Actions):
+
+| Secret | Value |
+|--------|-------|
+| `GH_PAT` | GitHub Personal Access Token (org-scoped, with `repo`, `workflow` permissions) |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+
+### 2. Copy workflows to your repo
+
+```bash
+cp .github/workflows/*.yml  /path/to/your-spring-boot-repo/.github/workflows/
+cp .github/copilot-instructions.md  /path/to/your-spring-boot-repo/.github/
+```
+
+> **Important:** Update `.github/copilot-instructions.md` to reflect your actual project's package names, conventions, and patterns. This is what keeps AI-generated code consistent with your codebase.
+
+### 3. Install prerequisites (local)
+
+```bash
+# GitHub CLI
+brew install gh          # macOS
+# or: https://cli.github.com/
+
+# Authenticate gh CLI
+gh auth login
+
+# Make kickoff script executable
+chmod +x scripts/kickoff.sh
+```
+
+### 4. Set environment variables (local)
+
+Add to your `~/.bashrc` or `~/.zshrc`:
+
+```bash
+export GITHUB_TOKEN="ghp_your_pat_here"
+export GITHUB_REPO="your-org/your-spring-boot-repo"
+```
+
+---
+
+## Usage
+
+### Start the pipeline
+
+```bash
+# Feature branch
+./scripts/kickoff.sh --md /any/local/path/user-profile-api.md --type feature
+
+# Bug fix branch
+./scripts/kickoff.sh --md /any/local/path/fix-login-timeout.md --type bugfix
+
+# Custom base branch
+./scripts/kickoff.sh --md /path/to/req.md --type feature --base develop
+```
+
+The branch name is derived from the MD filename:
+- `user-profile-api.md` → `feature/user-profile-api`
+- `fix-login-timeout.md` → `bugfix/fix-login-timeout`
+
+---
+
+### Design Review Gate
+
+After the pipeline runs, a PR titled `🎨 [Design Review] {ticket-id}` will appear.
+
+Review the generated `docs/design/{ticket-id}.md` and comment:
+
+```
+/approve-design
+```
+or
+```
+/revise-design: Add pagination support to the list endpoint, and include caching strategy
+```
+
+You can iterate with `/revise-design` as many times as needed. Each comment triggers a new AI revision pushed to the same PR.
+
+---
+
+### Code Review Gate
+
+After design approval, a PR titled `🚀 [Code Review] {ticket-id}` will appear.
+
+This is a **standard GitHub PR** — review the diff normally. For AI-assisted iteration:
+
+```
+/revise-code: Extract the mapping logic into a separate mapper class and add null checks
+```
+
+Once satisfied, approve and merge as usual.
+
+---
+
+## File Structure (what gets created in your repo)
+
+```
+your-repo/
+├── requirements/
+│   └── {ticket-id}.md          ← your original MD file, committed here
+├── docs/
+│   └── design/
+│       └── {ticket-id}.md      ← AI-generated design doc
+└── src/
+    └── main/java/...           ← AI-generated Spring Boot code
+    └── test/java/...           ← AI-generated tests
+```
+
+---
+
+## Workflow Reference
+
+| Workflow File | Trigger | What it does |
+|---|---|---|
+| `1-generate-design.yml` | `repository_dispatch: generate-design` | Generates design doc PR |
+| `2-design-review-handler.yml` | PR comment `/approve-design` or `/revise-design:` | Approves or iterates design |
+| `3-generate-code.yml` | `repository_dispatch: generate-code` | Generates Spring Boot code PR |
+| `4-code-review-handler.yml` | PR comment `/revise-code:` | Iterates code on same PR |
+
+---
+
+## Extending to Jira
+
+When you're ready to add Jira ticket ID support, the `kickoff.sh` script accepts `--jira PROJ-123` (add this flag). The Atlassian MCP server (already connected to Claude.ai) can fetch ticket content. The pipeline architecture stays identical — only the input source changes.

@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.tdg.productcrud.service.ProductServiceImplTest
+-------------------------------------------------------------------------------
+Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.623 s -- in com.tdg.productcrud.service.ProductServiceImplTest

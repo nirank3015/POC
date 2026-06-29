@@ -1,0 +1,3 @@
+com\tdg\productcrud\controller\ProductControllerTest.class
+com\tdg\productcrud\service\ProductServiceImplTest.class
+com\tdg\productcrud\entity\ProductEntityTest.class

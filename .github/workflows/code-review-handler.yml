@@ -1,0 +1,206 @@
+# =============================================================================
+# Workflow 4: code-review-handler
+# Triggered by: PR comment containing /revise-code on a PR labelled 'code-review'
+# What it does: Reads current code + feedback, calls Claude API to revise,
+#               commits updated files to same PR branch.
+# =============================================================================
+name: 4 · Code Review Handler
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-context:
+    runs-on: ubuntu-latest
+    if: github.event.issue.pull_request != null
+    outputs:
+      is_revise:  ${{ steps.parse.outputs.is_revise }}
+      feedback:   ${{ steps.parse.outputs.feedback }}
+      branch:     ${{ steps.pr_info.outputs.branch }}
+      ticket_id:  ${{ steps.pr_info.outputs.ticket_id }}
+      has_label:  ${{ steps.pr_info.outputs.has_label }}
+    steps:
+      - name: Parse comment
+        id: parse
+        env:
+          COMMENT: ${{ github.event.comment.body }}
+        run: |
+          if echo "$COMMENT" | grep -qi "^/revise-code:"; then
+            FEEDBACK=$(echo "$COMMENT" | sed 's|/revise-code:||i' | xargs)
+            echo "is_revise=true"      >> $GITHUB_OUTPUT
+            echo "feedback=$FEEDBACK"  >> $GITHUB_OUTPUT
+          else
+            echo "is_revise=false"     >> $GITHUB_OUTPUT
+            echo "feedback="           >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get PR info
+        id: pr_info
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          REPO=${{ github.repository }}
+
+          PR_DATA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+          BRANCH=$(echo "$PR_DATA" | python3 -c "import json,sys; print(json.load(sys.stdin)['head']['ref'])")
+          LABELS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/labels" --jq '.[].name')
+
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          TICKET_ID=$(echo "$BRANCH" | sed 's|^feature/||' | sed 's|^bugfix/||')
+          echo "ticket_id=$TICKET_ID" >> $GITHUB_OUTPUT
+
+          if echo "$LABELS" | grep -q "code-review"; then
+            echo "has_label=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_label=false" >> $GITHUB_OUTPUT
+          fi
+
+  revise-code:
+    needs: check-context
+    runs-on: ubuntu-latest
+    if: |
+      needs.check-context.outputs.is_revise == 'true' &&
+      needs.check-context.outputs.has_label == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+
+    env:
+      TICKET_ID:   ${{ needs.check-context.outputs.ticket_id }}
+      BRANCH_NAME: ${{ needs.check-context.outputs.branch }}
+      FEEDBACK:    ${{ needs.check-context.outputs.feedback }}
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ secrets.GH_PAT }}
+
+      - name: React with eyes
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            --method POST --field content="eyes" || true
+
+      - name: Collect current code for context
+        run: |
+          TICKET_ID="${{ env.TICKET_ID }}"
+
+          DESIGN_DOC=$(cat "docs/design/${TICKET_ID}.md" 2>/dev/null || echo "")
+          echo "DESIGN_DOC<<HEREDOC" >> $GITHUB_ENV
+          echo "$DESIGN_DOC"         >> $GITHUB_ENV
+          echo "HEREDOC"             >> $GITHUB_ENV
+
+          INSTRUCTIONS=""
+          [ -f ".github/copilot-instructions.md" ] && INSTRUCTIONS=$(cat ".github/copilot-instructions.md")
+          echo "INSTRUCTIONS<<HEREDOC" >> $GITHUB_ENV
+          echo "$INSTRUCTIONS"         >> $GITHUB_ENV
+          echo "HEREDOC"               >> $GITHUB_ENV
+
+          # Collect all Java files changed on this branch vs main
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD -- '*.java' '*.sql' '*.yaml' '*.yml' '*.properties' 2>/dev/null || echo "")
+          SOURCE_CONTEXT=""
+          for f in $CHANGED_FILES; do
+            [ -f "$f" ] && SOURCE_CONTEXT="${SOURCE_CONTEXT}\n\n### File: ${f}\n\`\`\`java\n$(cat "$f")\n\`\`\`"
+          done
+
+          echo "SOURCE_CONTEXT<<HEREDOC" >> $GITHUB_ENV
+          printf "%b" "$SOURCE_CONTEXT"  >> $GITHUB_ENV
+          echo ""                        >> $GITHUB_ENV
+          echo "HEREDOC"                 >> $GITHUB_ENV
+
+      - name: Revise code via Claude API
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, urllib.request, re, sys
+
+          design_doc     = os.environ.get("DESIGN_DOC", "")
+          instructions   = os.environ.get("INSTRUCTIONS", "")
+          source_context = os.environ.get("SOURCE_CONTEXT", "")
+          feedback       = os.environ.get("FEEDBACK", "")
+          ticket_id      = os.environ.get("TICKET_ID", "")
+
+          prompt = f"""You are a senior Java Spring Boot developer. You wrote the following code and a code reviewer has requested changes.
+
+          ## Project Conventions
+          {instructions}
+
+          ## Design Document (approved)
+          {design_doc}
+
+          ## Current Code (files changed on this branch)
+          {source_context}
+
+          ## Reviewer Feedback
+          {feedback}
+
+          ## Instructions
+          Revise only the files that need to change to address the feedback. Output ONLY the files that need updating using EXACTLY this format:
+
+          ### FILE: src/main/java/com/example/[path]/[ClassName].java
+          ```java
+          [complete revised file content]
+          ```
+
+          Do not output files that don't need changes. Write complete, compilable code.
+          """
+
+          payload = {
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 8000,
+            "messages": [{"role": "user", "content": prompt}]
+          }
+
+          req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=json.dumps(payload).encode(),
+            headers={
+              "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+              "anthropic-version": "2023-06-01",
+              "content-type": "application/json"
+            }
+          )
+
+          with urllib.request.urlopen(req) as resp:
+            data = json.load(resp)
+
+          text = next((b["text"] for b in data["content"] if b["type"] == "text"), "")
+
+          file_pattern = re.compile(
+            r'### FILE: ([\w/.\-]+)\n```(?:java|sql|xml|yaml|yml|properties)?\n(.*?)```',
+            re.DOTALL
+          )
+
+          files = file_pattern.findall(text)
+          for filepath, content in files:
+            filepath = filepath.strip()
+            os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+            with open(filepath, "w") as f:
+              f.write(content.strip())
+            print(f"Revised: {filepath}")
+
+          print(f"\nTotal files revised: {len(files)}")
+          PYEOF
+
+      - name: Commit revised code
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "fix(${TICKET_ID}): revise implementation based on code review feedback"
+          git push origin "$BRANCH_NAME"
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh pr comment "${{ github.event.issue.number }}" \
+            --body "🔄 **Code revised** based on your feedback. Please re-review the changes.
+
+          You can continue using \`/revise-code: <feedback>\` for further iterations, or approve and merge when satisfied."

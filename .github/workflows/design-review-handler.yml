@@ -1,0 +1,220 @@
+# =============================================================================
+# Workflow 2: design-review-handler
+# Triggered by: PR comment containing /approve-design or /revise-design
+# What it does:
+#   - /approve-design  → triggers code generation workflow
+#   - /revise-design   → calls Claude API to revise design doc, pushes new commit
+# =============================================================================
+name: 2 · Design Review Handler
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  # ── Guard: only run on PRs with label 'design-review' ───────────────────────
+  check-context:
+    runs-on: ubuntu-latest
+    if: github.event.issue.pull_request != null
+    outputs:
+      is_approve: ${{ steps.parse.outputs.is_approve }}
+      is_revise:  ${{ steps.parse.outputs.is_revise }}
+      feedback:   ${{ steps.parse.outputs.feedback }}
+      branch:     ${{ steps.pr_info.outputs.branch }}
+      ticket_id:  ${{ steps.pr_info.outputs.ticket_id }}
+      has_label:  ${{ steps.pr_info.outputs.has_label }}
+    steps:
+      - name: Parse comment
+        id: parse
+        env:
+          COMMENT: ${{ github.event.comment.body }}
+        run: |
+          COMMENT_LOWER=$(echo "$COMMENT" | tr '[:upper:]' '[:lower:]' | xargs)
+
+          if echo "$COMMENT_LOWER" | grep -q "^/approve-design"; then
+            echo "is_approve=true"  >> $GITHUB_OUTPUT
+            echo "is_revise=false"  >> $GITHUB_OUTPUT
+            echo "feedback="        >> $GITHUB_OUTPUT
+
+          elif echo "$COMMENT" | grep -qi "^/revise-design:"; then
+            FEEDBACK=$(echo "$COMMENT" | sed 's|/revise-design:||i' | xargs)
+            echo "is_approve=false" >> $GITHUB_OUTPUT
+            echo "is_revise=true"   >> $GITHUB_OUTPUT
+            echo "feedback=$FEEDBACK" >> $GITHUB_OUTPUT
+
+          else
+            echo "is_approve=false" >> $GITHUB_OUTPUT
+            echo "is_revise=false"  >> $GITHUB_OUTPUT
+            echo "feedback="        >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get PR info
+        id: pr_info
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          REPO=${{ github.repository }}
+
+          PR_DATA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+          BRANCH=$(echo "$PR_DATA" | python3 -c "import json,sys; print(json.load(sys.stdin)['head']['ref'])")
+          LABELS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/labels" --jq '.[].name')
+
+          echo "branch=$BRANCH"    >> $GITHUB_OUTPUT
+
+          # Derive ticket ID from branch name (feature/TICKET-ID → TICKET-ID)
+          TICKET_ID=$(echo "$BRANCH" | sed 's|^feature/||' | sed 's|^bugfix/||')
+          echo "ticket_id=$TICKET_ID" >> $GITHUB_OUTPUT
+
+          if echo "$LABELS" | grep -q "design-review"; then
+            echo "has_label=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_label=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Approve: trigger code generation ────────────────────────────────────────
+  approve-design:
+    needs: check-context
+    runs-on: ubuntu-latest
+    if: |
+      needs.check-context.outputs.is_approve == 'true' &&
+      needs.check-context.outputs.has_label == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: React with 👍
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            --method POST --field content="+1" || true
+
+      - name: Add approved label & comment
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          gh pr edit "$PR_NUMBER" --add-label "design-approved" --remove-label "design-review"
+          gh pr comment "$PR_NUMBER" --body "✅ **Design approved!** Triggering code generation now... watch for a new commit on this branch shortly."
+
+      - name: Trigger code generation workflow
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh api "repos/${{ github.repository }}/dispatches" \
+            --method POST \
+            --field event_type="generate-code" \
+            --field client_payload="{
+              \"ticket_id\": \"${{ needs.check-context.outputs.ticket_id }}\",
+              \"branch_name\": \"${{ needs.check-context.outputs.branch }}\",
+              \"pr_number\": ${{ github.event.issue.number }}
+            }"
+
+  # ── Revise: iterate design doc ───────────────────────────────────────────────
+  revise-design:
+    needs: check-context
+    runs-on: ubuntu-latest
+    if: |
+      needs.check-context.outputs.is_revise == 'true' &&
+      needs.check-context.outputs.has_label == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+
+    env:
+      TICKET_ID:   ${{ needs.check-context.outputs.ticket_id }}
+      BRANCH_NAME: ${{ needs.check-context.outputs.branch }}
+      FEEDBACK:    ${{ needs.check-context.outputs.feedback }}
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ secrets.GH_PAT }}
+
+      - name: React with 🔄
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            --method POST --field content="eyes" || true
+
+      - name: Read existing design doc
+        run: |
+          DESIGN_PATH="docs/design/${TICKET_ID}.md"
+          if [ ! -f "$DESIGN_PATH" ]; then
+            echo "ERROR: Design doc not found at $DESIGN_PATH"
+            exit 1
+          fi
+          CURRENT_DESIGN=$(cat "$DESIGN_PATH")
+          echo "CURRENT_DESIGN<<HEREDOC" >> $GITHUB_ENV
+          echo "$CURRENT_DESIGN"         >> $GITHUB_ENV
+          echo "HEREDOC"                 >> $GITHUB_ENV
+
+      - name: Revise design doc via Claude API
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, subprocess, sys
+
+          current_design = os.environ.get("CURRENT_DESIGN", "")
+          feedback       = os.environ.get("FEEDBACK", "")
+          ticket_id      = os.environ.get("TICKET_ID", "")
+
+          prompt = f"""You are a senior Java Spring Boot architect. You wrote the following technical design document and have received revision feedback from a human reviewer.
+
+          ## Current Design Document
+          {current_design}
+
+          ## Reviewer Feedback
+          {feedback}
+
+          ## Instructions
+          Revise the design document to address the feedback. Keep all sections intact and only modify what the feedback requires. Output the complete revised Markdown document only — no preamble, no explanation.
+          """
+
+          payload = {
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 8000,
+            "messages": [{"role": "user", "content": prompt}]
+          }
+
+          import urllib.request
+          req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=json.dumps(payload).encode(),
+            headers={
+              "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+              "anthropic-version": "2023-06-01",
+              "content-type": "application/json"
+            }
+          )
+          with urllib.request.urlopen(req) as resp:
+            data = json.load(resp)
+
+          text = next((b["text"] for b in data["content"] if b["type"] == "text"), "")
+          design_path = f"docs/design/{ticket_id}.md"
+          with open(design_path, "w") as f:
+            f.write(text)
+
+          print(f"Revised design doc written to {design_path}")
+          PYEOF
+
+      - name: Commit revised design doc
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "docs/design/${TICKET_ID}.md"
+          git commit -m "design: revise design doc for ${TICKET_ID} based on review feedback"
+          git push origin "$BRANCH_NAME"
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh pr comment "${{ github.event.issue.number }}" \
+            --body "🔄 **Design revised** based on your feedback. Please review the updated design doc and comment again to approve or request further changes."

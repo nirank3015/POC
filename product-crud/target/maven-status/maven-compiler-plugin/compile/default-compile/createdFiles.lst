@@ -1,0 +1,10 @@
+com\tdg\productcrud\dto\ProductRequestDto.class
+com\tdg\productcrud\dto\ProductResponseDto.class
+com\tdg\productcrud\service\ProductServiceImpl.class
+com\tdg\productcrud\service\ProductService.class
+com\tdg\productcrud\repository\ProductRepository.class
+com\tdg\productcrud\controller\ProductController.class
+com\tdg\productcrud\ProductCrudApplication.class
+com\tdg\productcrud\entity\Product.class
+com\tdg\productcrud\exception\ResourceNotFoundException.class
+com\tdg\productcrud\exception\GlobalExceptionHandler.class
