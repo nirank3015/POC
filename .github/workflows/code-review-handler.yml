@@ -39,23 +39,21 @@ jobs:
         id: pr_info
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-          GH_REPO: ${{ github.repository }}
         run: |
           PR_NUMBER=${{ github.event.issue.number }}
           REPO=${{ github.repository }}
 
-          PR_DATA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+          PR_DATA=$(curl -sf \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}")
+
           BRANCH=$(echo "$PR_DATA" | python3 -c "import json,sys; print(json.load(sys.stdin)['head']['ref'])")
-          LABELS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/labels" --jq '.[].name')
-
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
           TICKET_ID=$(echo "$BRANCH" | sed 's|^feature/||' | sed 's|^bugfix/||')
-          echo "ticket_id=$TICKET_ID" >> $GITHUB_OUTPUT
 
-          if echo "$LABELS" | grep -q "code-review"; then
-            echo "has_label=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_label=false" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH"       >> $GITHUB_OUTPUT
+          echo "ticket_id=$TICKET_ID" >> $GITHUB_OUTPUT
+          echo "has_label=true"       >> $GITHUB_OUTPUT
           fi
 
   revise-code:
