@@ -33,11 +33,30 @@ jobs:
 
       - name: Collect context files
         id: collect_context
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           TICKET_ID="${{ env.TICKET_ID }}"
+          REPO="${{ github.repository }}"
+          BRANCH="${{ env.BRANCH_NAME }}"
 
-          # Design doc (required)
-          DESIGN_DOC=$(cat "docs/design/${TICKET_ID}.md")
+          # Design doc — try filesystem first, fall back to GitHub API
+          DESIGN_DOC=""
+          if [ -f "docs/design/${TICKET_ID}.md" ]; then
+            DESIGN_DOC=$(cat "docs/design/${TICKET_ID}.md")
+          else
+            echo "Design doc not on filesystem, fetching from GitHub API..."
+            DESIGN_DOC=$(curl -sf \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github.raw+json" \
+              "https://api.github.com/repos/${REPO}/contents/docs/design/${TICKET_ID}.md?ref=${BRANCH}") || true
+          fi
+
+          if [ -z "$DESIGN_DOC" ]; then
+            echo "ERROR: Design doc not found for ${TICKET_ID}. Run the kickoff script to regenerate."
+            exit 1
+          fi
+
           echo "DESIGN_DOC<<HEREDOC" >> $GITHUB_ENV
           echo "$DESIGN_DOC"         >> $GITHUB_ENV
           echo "HEREDOC"             >> $GITHUB_ENV
@@ -52,17 +71,10 @@ jobs:
           # Collect representative source files for context
           # Entities, Services, Repositories, Controllers (max 30 files to stay within token limits)
           SOURCE_CONTEXT=""
-          for pattern in \
-            "src/main/java/**/*Entity.java" \
-            "src/main/java/**/*Repository.java" \
-            "src/main/java/**/*Service.java" \
-            "src/main/java/**/*ServiceImpl.java" \
-            "src/main/java/**/*Controller.java" \
-            "src/main/java/**/*Config.java" \
-            "src/main/java/**/*Exception*.java"; do
-            for f in $(find . -path "./$pattern" 2>/dev/null | head -5); do
+          for pattern in "*Entity.java" "*Repository.java" "*Service.java" "*ServiceImpl.java" "*Controller.java" "*Config.java" "*Exception*.java"; do
+            while IFS= read -r f; do
               SOURCE_CONTEXT="${SOURCE_CONTEXT}\n\n### File: ${f}\n\`\`\`java\n$(cat "$f")\n\`\`\`"
-            done
+            done < <(find . -name "$pattern" 2>/dev/null | head -5)
           done
 
           echo "SOURCE_CONTEXT<<HEREDOC" >> $GITHUB_ENV
