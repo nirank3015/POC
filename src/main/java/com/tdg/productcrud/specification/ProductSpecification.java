@@ -7,6 +7,10 @@ import java.math.BigDecimal;
 
 public class ProductSpecification {
 
+    private ProductSpecification() {
+        // Private constructor to prevent instantiation
+    }
+
     public static Specification<Product> hasCategory(String category) {
         return (root, query, criteriaBuilder) -> 
             category == null ? null : criteriaBuilder.equal(root.get("category"), category);

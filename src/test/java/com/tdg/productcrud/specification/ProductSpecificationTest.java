@@ -1,15 +1,14 @@
 package com.tdg.productcrud.specification;
 
 import com.tdg.productcrud.entity.Product;
+import com.tdg.productcrud.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.jpa.domain.Specification;
 
+import javax.persistence.criteria.Predicate;
 import java.math.BigDecimal;
 import java.util.List;
-
-import javax.persistence.EntityManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,59 +16,43 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ProductSpecificationTest {
 
     @Autowired
-    private EntityManager entityManager;
+    private ProductRepository productRepository;
 
     @Test
-    void testHasCategory() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setCategory("Electronics");
-        product.setPrice(new BigDecimal("500"));
-        product.setStockQuantity(10);
-        entityManager.persist(product);
-
-        Specification<Product> spec = ProductSpecification.hasCategory("Electronics");
-        List<Product> results = entityManager.getEntityManager()
-            .createQuery("SELECT p FROM Product p WHERE " + spec.toPredicate(), Product.class)
-            .getResultList();
-
-        assertThat(results).hasSize(1);
-        assertThat(results.get(0).getCategory()).isEqualTo("Electronics");
+    void shouldFilterByCategory() {
+        List<Product> products = productRepository.findAll(ProductSpecification.hasCategory("Electronics"));
+        assertThat(products).isNotEmpty();
+        assertThat(products).allMatch(product -> "Electronics".equals(product.getCategory()));
     }
 
     @Test
-    void testHasPriceGreaterThanOrEqual() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setCategory("Electronics");
-        product.setPrice(new BigDecimal("1000"));
-        product.setStockQuantity(10);
-        entityManager.persist(product);
-
-        Specification<Product> spec = ProductSpecification.hasPriceGreaterThanOrEqual(new BigDecimal("500"));
-        List<Product> results = entityManager.getEntityManager()
-            .createQuery("SELECT p FROM Product p WHERE " + spec.toPredicate(), Product.class)
-            .getResultList();
-
-        assertThat(results).hasSize(1);
-        assertThat(results.get(0).getPrice()).isGreaterThanOrEqualTo(new BigDecimal("500"));
+    void shouldFilterByMinPrice() {
+        BigDecimal minPrice = BigDecimal.valueOf(500);
+        List<Product> products = productRepository.findAll(ProductSpecification.hasPriceGreaterThanOrEqual(minPrice));
+        assertThat(products).isNotEmpty();
+        assertThat(products).allMatch(product -> product.getPrice().compareTo(minPrice) >= 0);
     }
 
     @Test
-    void testHasPriceLessThanOrEqual() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setCategory("Electronics");
-        product.setPrice(new BigDecimal("100"));
-        product.setStockQuantity(10);
-        entityManager.persist(product);
+    void shouldFilterByMaxPrice() {
+        BigDecimal maxPrice = BigDecimal.valueOf(1500);
+        List<Product> products = productRepository.findAll(ProductSpecification.hasPriceLessThanOrEqual(maxPrice));
+        assertThat(products).isNotEmpty();
+        assertThat(products).allMatch(product -> product.getPrice().compareTo(maxPrice) <= 0);
+    }
 
-        Specification<Product> spec = ProductSpecification.hasPriceLessThanOrEqual(new BigDecimal("150"));
-        List<Product> results = entityManager.getEntityManager()
-            .createQuery("SELECT p FROM Product p WHERE " + spec.toPredicate(), Product.class)
-            .getResultList();
-
-        assertThat(results).hasSize(1);
-        assertThat(results.get(0).getPrice()).isLessThanOrEqualTo(new BigDecimal("150"));
+    @Test
+    void shouldFilterByCategoryAndPriceRanges() {
+        BigDecimal minPrice = BigDecimal.valueOf(500);
+        BigDecimal maxPrice = BigDecimal.valueOf(1500);
+        List<Product> products = productRepository.findAll(
+            ProductSpecification.hasCategory("Electronics")
+                .and(ProductSpecification.hasPriceGreaterThanOrEqual(minPrice))
+                .and(ProductSpecification.hasPriceLessThanOrEqual(maxPrice))
+        );
+        assertThat(products).isNotEmpty();
+        assertThat(products).allMatch(product -> "Electronics".equals(product.getCategory()));
+        assertThat(products).allMatch(product -> product.getPrice().compareTo(minPrice) >= 0);
+        assertThat(products).allMatch(product -> product.getPrice().compareTo(maxPrice) <= 0);
     }
 }
