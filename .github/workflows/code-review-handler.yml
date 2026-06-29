@@ -54,7 +54,6 @@ jobs:
           echo "branch=$BRANCH"       >> $GITHUB_OUTPUT
           echo "ticket_id=$TICKET_ID" >> $GITHUB_OUTPUT
           echo "has_label=true"       >> $GITHUB_OUTPUT
-          fi
 
   revise-code:
     needs: check-context

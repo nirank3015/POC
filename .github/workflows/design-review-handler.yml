@@ -89,22 +89,36 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
+          REPO=${{ github.repository }}
           PR_NUMBER=${{ github.event.issue.number }}
-          gh pr edit "$PR_NUMBER" --add-label "design-approved" --remove-label "design-review"
-          gh pr comment "$PR_NUMBER" --body "✅ **Design approved!** Triggering code generation now... watch for a new commit on this branch shortly."
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/labels" \
+            -d '{"labels":["design-approved"]}' > /dev/null
+
+          curl -sf -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/labels/design-review" > /dev/null || true
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -d '{"body":"✅ **Design approved!** Triggering code generation now... watch for a new commit on this branch shortly."}' > /dev/null
 
       - name: Trigger code generation workflow
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          gh api "repos/${{ github.repository }}/dispatches" \
-            --method POST \
-            --field event_type="generate-code" \
-            --field client_payload="{
-              \"ticket_id\": \"${{ needs.check-context.outputs.ticket_id }}\",
-              \"branch_name\": \"${{ needs.check-context.outputs.branch }}\",
-              \"pr_number\": ${{ github.event.issue.number }}
-            }"
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+            -d "{\"event_type\":\"generate-code\",\"client_payload\":{\"ticket_id\":\"${{ needs.check-context.outputs.ticket_id }}\",\"branch_name\":\"${{ needs.check-context.outputs.branch }}\",\"pr_number\":${{ github.event.issue.number }}}}"
 
   # ── Revise: iterate design doc ───────────────────────────────────────────────
   revise-design:
