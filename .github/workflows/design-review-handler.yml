@@ -163,7 +163,11 @@ jobs:
       - name: Revise design doc via GitHub Models API
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: python3 scripts/revise_design.py
+        run: |
+          curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/revise_design.py" \
+            -o /tmp/revise_design.py
+          python3 /tmp/revise_design.py
 
       - name: Commit revised design doc
         run: |

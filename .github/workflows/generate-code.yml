@@ -80,7 +80,11 @@ jobs:
       - name: Generate Spring Boot code via GitHub Models API
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: python3 scripts/generate_code.py
+        run: |
+          curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/generate_code.py" \
+            -o /tmp/generate_code.py
+          python3 /tmp/generate_code.py
 
       - name: Commit generated code
         run: |

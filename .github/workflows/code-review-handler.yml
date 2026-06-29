@@ -114,7 +114,11 @@ jobs:
       - name: Revise code via GitHub Models API
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: python3 scripts/revise_code.py
+        run: |
+          curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/revise_code.py" \
+            -o /tmp/revise_code.py
+          python3 /tmp/revise_code.py
 
       - name: Commit revised code
         run: |
