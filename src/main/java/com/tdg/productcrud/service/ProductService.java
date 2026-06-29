@@ -1,0 +1,16 @@
+package com.tdg.productcrud.service;
+
+import com.tdg.productcrud.dto.ProductRequestDto;
+import com.tdg.productcrud.dto.ProductResponseDto;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+public interface ProductService {
+    ProductResponseDto createProduct(ProductRequestDto requestDto);
+    List<ProductResponseDto> getAllProducts();
+    List<ProductResponseDto> searchProducts(String category, BigDecimal minPrice, BigDecimal maxPrice); // NEW METHOD
+    ProductResponseDto getProductById(Long id);
+    ProductResponseDto updateProduct(Long id, ProductRequestDto requestDto);
+    void deleteProduct(Long id);
+}
