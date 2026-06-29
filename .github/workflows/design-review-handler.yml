@@ -76,9 +76,7 @@ jobs:
   approve-design:
     needs: check-context
     runs-on: ubuntu-latest
-    if: |
-      needs.check-context.outputs.is_approve == 'true' &&
-      needs.check-context.outputs.has_label == 'true'
+    if: needs.check-context.outputs.is_approve == 'true'
     permissions:
       contents: write
       pull-requests: write
@@ -116,9 +114,7 @@ jobs:
   revise-design:
     needs: check-context
     runs-on: ubuntu-latest
-    if: |
-      needs.check-context.outputs.is_revise == 'true' &&
-      needs.check-context.outputs.has_label == 'true'
+    if: needs.check-context.outputs.is_revise == 'true'
     permissions:
       contents: write
       pull-requests: write

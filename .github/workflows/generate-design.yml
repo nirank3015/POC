@@ -76,6 +76,11 @@ jobs:
         run: |
           DESIGN_PATH="docs/design/${TICKET_ID}.md"
 
+          # Ensure required labels exist before applying them
+          for LABEL in "design-review" "design-approved" "code-review"; do
+            gh label create "$LABEL" --color "#0075ca" --force || true
+          done
+
           PR_URL=$(gh pr create \
             --title "🎨 [Design Review] ${TICKET_ID}" \
             --body "## Design Review Required
