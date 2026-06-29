@@ -157,48 +157,7 @@ jobs:
       - name: Revise design doc via GitHub Models API
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          python3 << 'PYEOF'
-          import json, os, urllib.request, sys
-
-          current_design = os.environ.get("CURRENT_DESIGN", "")
-          feedback       = os.environ.get("FEEDBACK", "")
-          ticket_id      = os.environ.get("TICKET_ID", "")
-
-          prompt = f"""You are a senior Java Spring Boot architect. You wrote the following technical design document and have received revision feedback from a human reviewer.
-
-## Current Design Document
-{current_design}
-
-## Reviewer Feedback
-{feedback}
-
-## Instructions
-Revise the design document to address the feedback. Keep all sections intact and only modify what the feedback requires. Output the complete revised Markdown document only — no preamble, no explanation."""
-
-          payload = {
-            "model": "gpt-4o",
-            "max_tokens": 8000,
-            "messages": [{"role": "user", "content": prompt}]
-          }
-
-          req = urllib.request.Request(
-            "https://models.inference.ai.azure.com/chat/completions",
-            data=json.dumps(payload).encode(),
-            headers={
-              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-              "Content-Type": "application/json"
-            }
-          )
-          with urllib.request.urlopen(req) as resp:
-            data = json.load(resp)
-
-          text = data["choices"][0]["message"]["content"]
-          design_path = f"docs/design/{ticket_id}.md"
-          with open(design_path, "w") as f:
-            f.write(text)
-          print(f"Revised design doc written to {design_path}")
-          PYEOF
+        run: python3 scripts/revise_design.py
 
       - name: Commit revised design doc
         run: |
