@@ -160,14 +160,22 @@ jobs:
           ---
 
           ### 🔄 To request code changes:
-          Leave a review comment — the pipeline will automatically iterate on the same PR.
-
-          > Comment \`/revise-code: <feedback>\` for targeted AI revision.
+          Comment \`/revise-code: <feedback>\` for targeted AI revision.
 
           ---
-          > Merge this PR once satisfied. This is a standard GitHub PR review." \
+          > **This PR requires Copilot review + 1 human approval before merging.**" \
             --base main \
             --head "$BRANCH_NAME" \
             --label "code-review")
 
           echo "Code review PR opened: $CODE_PR_URL"
+
+          # Extract PR number from URL and request Copilot review
+          CODE_PR_NUMBER=$(echo "$CODE_PR_URL" | grep -oE '[0-9]+$')
+          REPO="${{ github.repository }}"
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/pulls/${CODE_PR_NUMBER}/requested_reviewers" \
+            -d '{"reviewers":["github-copilot"]}' > /dev/null || echo "Copilot review request skipped (may not be enabled on this repo)"
