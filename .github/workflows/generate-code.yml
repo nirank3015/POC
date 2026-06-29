@@ -129,10 +129,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
+          # Ensure code-review label exists
+          gh label create "code-review" --color "#e4e669" --force || true
+
           # Comment on design PR that it's been approved and code is ready
           if [ -n "$PR_NUMBER" ]; then
             gh pr comment "$PR_NUMBER" \
-              --body "✅ Design approved. Code has been generated and a new PR is open for code review."
+              --body "✅ Design approved. Code has been generated and a new PR is open for code review." || true
             gh pr close "$PR_NUMBER" || true
           fi
 
