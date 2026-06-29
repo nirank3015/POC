@@ -6,9 +6,9 @@ import com.tdg.productcrud.entity.Product;
 import com.tdg.productcrud.exception.ResourceNotFoundException;
 import com.tdg.productcrud.repository.ProductRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 public class ProductServiceImpl implements ProductService {
@@ -19,19 +19,22 @@ public class ProductServiceImpl implements ProductService {
         this.productRepository = productRepository;
     }
 
+    @Transactional
     @Override
     public ProductResponseDto createProduct(ProductRequestDto requestDto) {
         Product product = toEntity(requestDto);
         return toDto(productRepository.save(product));
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<ProductResponseDto> getAllProducts() {
         return productRepository.findAll().stream()
             .map(this::toDto)
-            .collect(Collectors.toList());
+            .toList();
     }
 
+    @Transactional(readOnly = true)
     @Override
     public ProductResponseDto getProductById(Long id) {
         Product product = productRepository.findById(id)
@@ -39,6 +42,7 @@ public class ProductServiceImpl implements ProductService {
         return toDto(product);
     }
 
+    @Transactional
     @Override
     public ProductResponseDto updateProduct(Long id, ProductRequestDto requestDto) {
         Product product = productRepository.findById(id)
@@ -50,6 +54,7 @@ public class ProductServiceImpl implements ProductService {
         return toDto(productRepository.save(product));
     }
 
+    @Transactional
     @Override
     public void deleteProduct(Long id) {
         Product product = productRepository.findById(id)

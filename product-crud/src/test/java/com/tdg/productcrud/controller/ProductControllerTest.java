@@ -107,4 +107,14 @@ class ProductControllerTest {
         mockMvc.perform(delete("/api/products/1"))
             .andExpect(status().isNoContent());
     }
+
+    @Test
+    void deleteProduct_notFound_returns404() throws Exception {
+        org.mockito.Mockito.doThrow(new ResourceNotFoundException("Product not found with id: 99"))
+            .when(productService).deleteProduct(99L);
+
+        mockMvc.perform(delete("/api/products/99"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.message").value("Product not found with id: 99"));
+    }
 }
