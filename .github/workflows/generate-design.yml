@@ -49,118 +49,98 @@ jobs:
           echo "$INSTRUCTIONS"         >> $GITHUB_ENV
           echo "HEREDOC"              >> $GITHUB_ENV
 
-      - name: Generate design doc via Claude API
+      - name: Generate design doc via GitHub Models API
         id: generate
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          cat > /tmp/prompt.json << 'PROMPT_EOF'
-          {
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 8000,
-            "messages": [
-              {
-                "role": "user",
-                "content": "PLACEHOLDER"
-              }
-            ]
-          }
-          PROMPT_EOF
-
-          # Build the prompt using Python to safely escape JSON
           python3 << 'PYEOF'
-          import json, os, sys
+          import json, os, urllib.request, sys
 
-          requirement   = os.environ.get("REQUIREMENT", "")
-          instructions  = os.environ.get("INSTRUCTIONS", "")
-          ticket_id     = os.environ.get("TICKET_ID", "")
+          requirement  = os.environ.get("REQUIREMENT", "")
+          instructions = os.environ.get("INSTRUCTIONS", "")
+          ticket_id    = os.environ.get("TICKET_ID", "")
 
           prompt = f"""You are a senior Java Spring Boot architect. Generate a thorough technical design document for the following requirement.
 
-          ## Project Conventions
-          {instructions}
+## Project Conventions
+{instructions}
 
-          ## Requirement
-          {requirement}
+## Requirement
+{requirement}
 
-          ## Output Format
-          Produce a Markdown document with these exact sections:
+## Output Format
+Produce a Markdown document with these exact sections:
 
-          # Technical Design: {ticket_id}
+# Technical Design: {ticket_id}
 
-          ## 1. Overview
-          Brief summary of the feature/fix and its purpose.
+## 1. Overview
+Brief summary of the feature/fix and its purpose.
 
-          ## 2. Scope
-          What is in scope and explicitly out of scope.
+## 2. Scope
+What is in scope and explicitly out of scope.
 
-          ## 3. API Design
-          - Endpoint(s): method, path, request body, response body, status codes
-          - Request/Response examples in JSON
+## 3. API Design
+- Endpoint(s): method, path, request body, response body, status codes
+- Request/Response examples in JSON
 
-          ## 4. Data Model Changes
-          - New or modified JPA entities (fields, types, constraints)
-          - Database migration notes (new tables, columns, indexes)
+## 4. Data Model Changes
+- New or modified JPA entities (fields, types, constraints)
+- Database migration notes (new tables, columns, indexes)
 
-          ## 5. Service Layer Design
-          - New or modified service classes and methods
-          - Business logic and validation rules
-          - Transaction boundaries
+## 5. Service Layer Design
+- New or modified service classes and methods
+- Business logic and validation rules
+- Transaction boundaries
 
-          ## 6. Repository Layer
-          - New Spring Data JPA repository methods or Specifications needed
-          - Any custom JPQL/native queries
+## 6. Repository Layer
+- New Spring Data JPA repository methods or Specifications needed
+- Any custom JPQL/native queries
 
-          ## 7. Security & Validation
-          - Input validation rules (@Valid annotations, constraints)
-          - Authorization/role requirements
+## 7. Security & Validation
+- Input validation rules (@Valid annotations, constraints)
+- Authorization/role requirements
 
-          ## 8. Error Handling
-          - Expected exceptions and how they map to HTTP responses
-          - Custom error codes if applicable
+## 8. Error Handling
+- Expected exceptions and how they map to HTTP responses
+- Custom error codes if applicable
 
-          ## 9. Testing Strategy
-          - Unit test cases (service layer)
-          - Integration test cases (controller layer)
-          - Edge cases to cover
+## 9. Testing Strategy
+- Unit test cases (service layer)
+- Integration test cases (controller layer)
+- Edge cases to cover
 
-          ## 10. Open Questions
-          Anything that needs human clarification before implementation.
+## 10. Open Questions
+Anything that needs human clarification before implementation.
 
-          Be specific and concrete. Use the project conventions above to align with existing patterns.
-          """
+Be specific and concrete. Use the project conventions above to align with existing patterns."""
 
           payload = {
-            "model": "claude-sonnet-4-6",
+            "model": "gpt-4o",
             "max_tokens": 8000,
             "messages": [{"role": "user", "content": prompt}]
           }
 
-          with open("/tmp/prompt.json", "w") as f:
-            json.dump(payload, f)
+          req = urllib.request.Request(
+            "https://models.inference.ai.azure.com/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers={
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json"
+            }
+          )
+          with urllib.request.urlopen(req) as resp:
+            data = json.load(resp)
 
-          print("Prompt payload written.")
+          if "choices" not in data:
+            print("ERROR: " + json.dumps(data), file=sys.stderr)
+            sys.exit(1)
+
+          text = data["choices"][0]["message"]["content"]
+          with open("/tmp/design_doc.md", "w") as f:
+            f.write(text)
+          print("Design doc generated successfully.")
           PYEOF
-
-          # Call Claude API
-          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "content-type: application/json" \
-            -d @/tmp/prompt.json)
-
-          # Extract text content
-          echo "$RESPONSE" | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          if 'content' not in data:
-              print('ERROR: ' + json.dumps(data), file=sys.stderr)
-              sys.exit(1)
-          text = next((b['text'] for b in data['content'] if b['type']=='text'), '')
-          with open('/tmp/design_doc.md', 'w') as f:
-              f.write(text)
-          print('Design doc generated successfully.')
-          "
 
       - name: Commit design doc to branch
         run: |
