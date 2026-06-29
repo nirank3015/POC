@@ -39,6 +39,7 @@ jobs:
         id: pr_info
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_REPO: ${{ github.repository }}
         run: |
           PR_NUMBER=${{ github.event.issue.number }}
           REPO=${{ github.repository }}
