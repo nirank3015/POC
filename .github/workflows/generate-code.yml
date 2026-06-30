@@ -103,6 +103,16 @@ jobs:
           echo "$POM_CONTENT"         >> $GITHUB_ENV
           echo "HEREDOC"              >> $GITHUB_ENV
 
+          # Detect all module base paths (each directory containing src/main/java)
+          MODULE_PATHS=""
+          while IFS= read -r java_dir; do
+            module=$(echo "$java_dir" | sed 's|^\./||' | sed 's|/src/main/java$||')
+            MODULE_PATHS="${MODULE_PATHS}${module},"
+          done < <(find . -type d -name "java" -path "*/src/main/java" 2>/dev/null)
+          MODULE_PATHS="${MODULE_PATHS%,}"  # strip trailing comma
+          echo "Detected MODULE_PATHS: $MODULE_PATHS"
+          echo "MODULE_PATHS=$MODULE_PATHS" >> $GITHUB_ENV
+
       - name: Generate Spring Boot code via GitHub Models API
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
