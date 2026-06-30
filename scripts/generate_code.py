@@ -55,7 +55,7 @@ prompt = "\n\n".join([
 ])
 
 payload = {
-    "model": "gpt-4o",
+    "model": "claude-opus-4-7",
     "max_tokens": 8000,
     "messages": [{"role": "user", "content": prompt}]
 }
