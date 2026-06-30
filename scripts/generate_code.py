@@ -1,4 +1,4 @@
-import json, os, re, urllib.request, sys
+import json, os, re, sys, urllib.error, urllib.request
 
 design_doc     = os.environ.get("DESIGN_DOC", "")
 instructions   = os.environ.get("INSTRUCTIONS", "")
@@ -55,7 +55,7 @@ prompt = "\n\n".join([
 ])
 
 payload = {
-    "model": "claude-opus-4-7",
+    "model": "gpt-4o",
     "max_tokens": 8000,
     "messages": [{"role": "user", "content": prompt}]
 }
@@ -66,8 +66,15 @@ req = urllib.request.Request(
     headers={"Authorization": "Bearer " + gh_token, "Content-Type": "application/json"}
 )
 
-with urllib.request.urlopen(req) as resp:
-    data = json.load(resp)
+try:
+    with urllib.request.urlopen(req) as resp:
+        data = json.load(resp)
+except urllib.error.HTTPError as e:
+    error_body = e.read().decode("utf-8", errors="replace")
+    print(f"ERROR: GitHub Models request failed with HTTP {e.code} {e.reason}", file=sys.stderr)
+    if error_body:
+        print(error_body, file=sys.stderr)
+    raise
 
 if "choices" not in data:
     print("ERROR: " + json.dumps(data), file=sys.stderr)
