@@ -2,7 +2,7 @@
 # Workflow 3: generate-code
 # Triggered by: design-review-handler via repository_dispatch (after approval)
 # What it does: Reads design doc + copilot-instructions + key source files,
-#               calls Claude API to generate Spring Boot code,
+#               calls Claude Opus 4.7 to generate Spring Boot code,
 #               commits to branch, opens a code review PR.
 # =============================================================================
 name: 3 · Generate Code
