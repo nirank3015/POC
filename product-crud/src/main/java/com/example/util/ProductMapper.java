@@ -11,8 +11,10 @@ public class ProductMapper {
         return ProductResponseDto.builder()
                 .id(product.getId())
                 .name(product.getName())
+                .category(product.getCategory())
                 .price(product.getPrice())
-                .description(product.getDescription())
+                .stockQuantity(product.getStockQuantity())
+                .createdAt(product.getCreatedAt())
                 .build();
     }
 }

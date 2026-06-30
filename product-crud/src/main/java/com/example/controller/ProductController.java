@@ -10,7 +10,6 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -23,11 +22,7 @@ public class ProductController {
 
     @GetMapping
     public ApiResponse<Page<ProductResponseDto>> getAllProducts(
-            @PageableDefault(size = 20, sort = "id") Pageable pageable,
-            @RequestParam(name = "size", required = false) Integer size,
-            @RequestParam(name = "page", required = false) Integer page,
-            @RequestParam(name = "sort", required = false) String sort) {
-
+            @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         Page<ProductResponseDto> products = productService.getAllProducts(pageable);
         return new ApiResponse<>("Products retrieved successfully", products);
     }
