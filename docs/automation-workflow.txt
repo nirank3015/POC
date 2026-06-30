@@ -1,0 +1,209 @@
+================================================================================
+AUTO DEV PIPELINE — WORKFLOW OVERVIEW
+================================================================================
+
+OVERVIEW
+--------
+An end-to-end automation pipeline that takes a plain Markdown requirement file
+and produces production-ready Spring Boot code via AI, with human review gates
+at every stage before merging to main.
+
+Technologies: GitHub Actions, GitHub Models API (GPT-4o), Python, Bash, curl
+
+
+================================================================================
+ONE-TIME SETUP
+================================================================================
+
+1. Add GitHub repository secrets at:
+   https://github.com/<org>/<repo>/settings/secrets/actions
+
+   Secret Name        Value
+   ──────────────     ──────────────────────────────────────────
+   GH_PAT             GitHub Personal Access Token (repo + workflow scopes)
+
+2. Run the "0 · Setup Branch Protection" workflow manually from Actions tab.
+   This enforces 1 required human approval on main before any PR can merge.
+
+3. Enable Copilot code review at:
+   https://github.com/<org>/<repo>/settings/copilot
+
+4. (Optional) Enable "Automatically delete head branches" in repo Settings
+   under Pull Requests, or keep the "5 · Delete Merged Branch" workflow.
+
+
+================================================================================
+PIPELINE FLOW (PER FEATURE / BUGFIX)
+================================================================================
+
+STEP 1 — KICKOFF (Local)
+─────────────────────────
+Command:
+  GITHUB_TOKEN="<token>" GITHUB_REPO="<org>/<repo>" \
+  bash ./scripts/kickoff.sh --md ./path/to/requirement.md --type feature
+
+What it does:
+  1. Creates a feature/<ticket-id> branch from main via GitHub API
+  2. Uploads the requirement MD file to requirements/<ticket-id>.md on the branch
+  3. Dispatches the "generate-design" repository_dispatch event
+
+Files involved:
+  - scripts/kickoff.sh
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+STEP 2 — DESIGN GENERATION (Automated)
+───────────────────────────────────────
+Workflow: "1 · Generate Design Doc"  |  Trigger: repository_dispatch (generate-design)
+
+What it does:
+  1. Checks out the feature branch
+  2. Reads the requirement MD and copilot-instructions.md
+  3. Calls GPT-4o via GitHub Models API to generate a technical design document
+  4. Commits the design doc to docs/design/<ticket-id>.md on the feature branch
+  5. Opens a Design Review PR titled "🎨 [Design Review] <ticket-id>"
+  6. Auto-creates labels: design-review, design-approved, code-review
+
+Files involved:
+  - .github/workflows/generate-design.yml
+  - scripts/generate_design.py
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+STEP 3 — DESIGN REVIEW (Human Gate)
+─────────────────────────────────────
+Where: Design Review PR on GitHub
+
+Human actions:
+  - Read the generated design doc
+  - Comment "/approve-design" to proceed
+  - Comment "/revise-design: <feedback>" to request AI revision
+
+On "/revise-design":
+  - Workflow "2 · Design Review Handler" reads the feedback
+  - Calls GPT-4o to revise the design doc
+  - Commits the updated doc to the branch
+  - Loop back for another review
+
+Files involved:
+  - .github/workflows/design-review-handler.yml
+  - scripts/revise_design.py
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+STEP 4 — CODE GENERATION (Automated)
+──────────────────────────────────────
+Workflow: "3 · Generate Code"  |  Trigger: repository_dispatch (generate-code)
+
+What it does:
+  1. Checks out the feature branch
+  2. Collects context: design doc, copilot-instructions.md, existing Java source
+     files (Entities, Repositories, Services, Controllers), pom.xml
+  3. Calls GPT-4o via GitHub Models API to generate production-ready Spring Boot code
+  4. Parses the response and writes each file to its correct path in the repo
+  5. Commits all generated files to the feature branch
+  6. Closes the Design Review PR
+  7. Opens a Code Review PR titled "🚀 [Code Review] <ticket-id>"
+  8. Requests Copilot as a reviewer on the new PR
+
+Files involved:
+  - .github/workflows/generate-code.yml
+  - scripts/generate_code.py
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+STEP 5 — CODE REVIEW (AI + Human Gate)
+────────────────────────────────────────
+Where: Code Review PR on GitHub
+
+AI review:
+  - GitHub Copilot automatically reviews the PR and leaves inline comments
+
+Human actions:
+  - Review the generated code and Copilot comments
+  - Comment "/revise-code: <feedback>" to trigger AI code revision
+  - Approve the PR once satisfied (1 approval required by branch protection)
+
+On "/revise-code":
+  - Workflow "4 · Code Review Handler" reads the feedback and current code diff
+  - Calls GPT-4o to revise only the affected files
+  - Commits updated files to the branch
+  - Loop back for another review
+
+Files involved:
+  - .github/workflows/code-review-handler.yml
+  - scripts/revise_code.py
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+STEP 6 — MERGE & CLEANUP
+──────────────────────────
+  1. Once 1 human approval is given, the "Merge pull request" button unlocks
+  2. Reviewer merges the PR into main
+  3. Feature branch is automatically deleted (built-in GitHub setting or
+     workflow "5 · Delete Merged Branch")
+
+Files involved:
+  - .github/workflows/delete-merged-branch.yml  (if using workflow approach)
+
+
+================================================================================
+WORKFLOW TRIGGER SUMMARY
+================================================================================
+
+Workflow                      Trigger
+─────────────────────────     ──────────────────────────────────────────────
+0 · Setup Branch Protection   workflow_dispatch (manual, run once)
+1 · Generate Design Doc       repository_dispatch → generate-design
+2 · Design Review Handler     issue_comment → /approve-design or /revise-design
+3 · Generate Code             repository_dispatch → generate-code
+4 · Code Review Handler       issue_comment → /revise-code
+5 · Delete Merged Branch      pull_request closed + merged into main
+
+
+================================================================================
+REPOSITORY STRUCTURE
+================================================================================
+
+.
+├── .github/
+│   ├── copilot-instructions.md          # Code conventions fed to GPT-4o
+│   └── workflows/
+│       ├── generate-design.yml          # Workflow 1
+│       ├── design-review-handler.yml    # Workflow 2
+│       ├── generate-code.yml            # Workflow 3
+│       ├── code-review-handler.yml      # Workflow 4
+│       ├── delete-merged-branch.yml     # Workflow 5
+│       └── setup-branch-protection.yml  # Workflow 0
+├── scripts/
+│   ├── kickoff.sh                       # Local pipeline kickoff script
+│   ├── generate_design.py               # GPT-4o design doc generation
+│   ├── revise_design.py                 # GPT-4o design doc revision
+│   ├── generate_code.py                 # GPT-4o code generation
+│   └── revise_code.py                   # GPT-4o code revision
+├── requirements/
+│   └── <ticket-id>.md                   # Uploaded requirement files
+└── docs/
+    └── design/
+        └── <ticket-id>.md               # AI-generated design docs
+
+
+================================================================================
+AI MODEL
+================================================================================
+
+  Provider : GitHub Models API
+  Model    : GPT-4o
+  Endpoint : https://models.inference.ai.azure.com/chat/completions
+  Auth     : GH_PAT (no separate API key required)
+  Max tokens per call : 8000
+
+
+================================================================================
+END
+================================================================================
