@@ -129,10 +129,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           EXISTING_FILE_PATHS: ${{ env.EXISTING_FILE_PATHS }}
         run: |
-          curl -sf -H "Authorization: Bearer $GH_TOKEN" \
-            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/generate_code.py" \
-            -o /tmp/generate_code.py
-          python3 /tmp/generate_code.py
+          python3 scripts/generate_code.py
 
       - name: Commit generated code
         run: |
