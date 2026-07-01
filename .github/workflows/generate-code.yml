@@ -127,7 +127,8 @@ jobs:
       - name: Generate Spring Boot code via GitHub Models API
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-          GH_MODEL: claude-opus-4-7
+          # To use a Claude model, find the exact ID at https://github.com/marketplace/models (Anthropic section)
+          GH_MODEL: gpt-4o
           EXISTING_FILE_PATHS: ${{ env.EXISTING_FILE_PATHS }}
         run: |
           python3 scripts/generate_code.py
