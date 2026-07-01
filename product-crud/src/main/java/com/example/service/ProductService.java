@@ -1,6 +1,6 @@
-package com.tdg.productcrud.service;
+package com.example.service;
 
-import com.tdg.productcrud.dto.ProductResponseDto;
+import com.example.dto.ProductResponseDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
