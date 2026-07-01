@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/../.env"
 if [[ -f "$ENV_FILE" ]]; then
   set -o allexport
   # shellcheck disable=SC1090
-  source "$ENV_FILE"
+  source <(sed -E 's/^[[:space:]]*;[[:space:]]*/# /' "$ENV_FILE")
   set +o allexport
 fi
 
