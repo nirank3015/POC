@@ -6,7 +6,7 @@ source_context   = os.environ.get("SOURCE_CONTEXT", "")
 pom_content      = os.environ.get("POM_CONTENT", "")
 ticket_id        = os.environ.get("TICKET_ID", "")
 gh_token         = os.environ.get("GH_TOKEN", "")
-model_name       = os.environ.get("GH_MODEL", "claude-3-7-sonnet-20250219")
+model_name       = os.environ.get("GH_MODEL", "gpt-4o")
 module_paths_raw = os.environ.get("MODULE_PATHS", "").strip()
 existing_paths   = os.environ.get("EXISTING_FILE_PATHS", "").strip()
 
