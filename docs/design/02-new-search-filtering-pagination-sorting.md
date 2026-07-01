@@ -4,205 +4,225 @@
 
 ## 1. Overview
 
-This document describes the technical design approach for implementing the new feature: **Search, Filtering, Pagination, and Sorting** for the product list in the application.
-
-The current system supports filtering products using category, minPrice, and maxPrice parameters by leveraging Spring Data JPA's Specification API. However, the resulting product list is unbounded, which could lead to performance issues in cases of large datasets. To address this, pagination and sorting capabilities will be added to the product listing API, allowing clients to retrieve results in smaller, page-based responses and select sorting preferences. This enhancement will reduce the load and improve API performance while providing more flexibility to the client.
+This design document introduces an enhancement to the existing product listing and filtering functionality in the application. The current API already supports search and filtering by `category`, `minPrice`, and `maxPrice`. This enhancement will introduce pagination to limit the size of the result set, as well as support for configurable sorting by different fields (e.g., price, name, or other product attributes in ascending or descending order). The goal is to optimize API performance and user experience by preventing unbounded responses while enabling flexible data retrieval options.
 
 ---
 
 ## 2. Scope
 
 ### In Scope
-1. Adding **pagination** and **sorting** to the `/api/products` endpoint.
-2. Allowing clients to request specific pages of results with the `page` and `size` query parameters.
-3. Enabling sorting by any product field using the `sort` query parameter in the format `{field},{direction}`, where direction is `asc` or `desc`.
-4. Modifying the response to include total pages, total elements, and the current page.
-5. Updating the service, controller, and repository layers to incorporate pagination and sorting.
-6. Writing unit and integration tests to verify functionality.
+- Support for pagination and sorting in the `/api/products` endpoint.
+- Integration of pagination and sorting with existing filtering functionality.
+- Modifications to the `ProductService` and `ProductController` to support new query parameters `page`, `size`, and `sort`.
+- Use of Spring Data JPA `Specification` combined with `Pageable` to create a dynamic and scalable query mechanism.
+- Unit and integration testing for the added pagination and sorting functionalities.
 
 ### Out of Scope
-1. Non-product-related filtering/pagination/sorting.
-2. New entities, unrelated changes, or breaking existing functionality.
-3. Authentication/authorization changes.
+- Modifications to the existing database schema or new database tables/columns.
+- Full-text or fuzzy search (e.g., searching products by a name pattern).
+- Enhancements to other parts of the application beyond this specific endpoint.
 
 ---
 
 ## 3. API Design
 
-### Endpoint Details
-**Method:** `GET`  
-**Path:** `/api/products` 
+### Endpoint
 
-**Query Parameters**  
-| Parameter     | Type      | Optional | Description                                                                                  |
-|---------------|-----------|----------|----------------------------------------------------------------------------------------------|
-| `category`    | `String`  | Yes      | Filter products by the category name.                                                       |
-| `minPrice`    | `BigDecimal` | Yes   | Minimum price filter, inclusive.                                                            |
-| `maxPrice`    | `BigDecimal` | Yes   | Maximum price filter, inclusive.                                                            |
-| `page`        | `Integer` | Yes      | The page number to retrieve (zero-based index). Default: `0`.                               |
-| `size`        | `Integer` | Yes      | Number of results per page. Default: `20`.                                                  |
-| `sort`        | `String`  | Yes      | Sorting criteria in the format `{field},{direction}` (e.g., `price,asc`). Default: `id,asc`.|
+`GET /api/products`
 
-**Request/Response Examples**  
-**Request (Example #1):**  
+#### Query Parameters
+| Parameter    | Type    | Description                                                                                                         | Optional | Default   |
+|--------------|---------|---------------------------------------------------------------------------------------------------------------------|----------|-----------|
+| `category`   | String  | Filter products by category name.                                                                                   | Yes      | -         |
+| `minPrice`   | Decimal | Filter products with prices greater than or equal to this value.                                                    | Yes      | -         |
+| `maxPrice`   | Decimal | Filter products with prices less than or equal to this value.                                                       | Yes      | -         |
+| `page`       | Integer | The page number to retrieve (0-indexed, i.e., the first page is page 0).                                            | Yes      | 0         |
+| `size`       | Integer | The number of products per page.                                                                                    | Yes      | 20        |
+| `sort`       | String  | Sorting criteria in the format `field,order` where `order` is either `asc` or `desc` (e.g., `price,desc`).          | Yes      | `id,asc`  |
+
+#### Request Example
 ```
-GET /api/products?category=Electronics&maxPrice=1000&page=1&size=5&sort=price,desc
+GET /api/products?category=Electronics&minPrice=100&maxPrice=1000&page=0&size=10&sort=price,asc
 ```
 
-**Response (Example):**
+#### Response Fields
+| Field          | Type            | Description                                                 |
+|----------------|-----------------|-------------------------------------------------------------|
+| `content`      | List<Product>   | The list of products for the requested page.                |
+| `totalElements`| Long            | Total number of products matching the filter criteria.      |
+| `totalPages`   | Integer         | Total number of pages available.                           |
+| `number`       | Integer         | Page number currently being returned. (0-indexed)          |
+| `size`         | Integer         | Page size, or the number of products per page.             |
+
+#### Response Example
 ```json
 {
   "content": [
-    { "id": 4, "name": "Smartphone", "category": "Electronics", "price": 799.00 },
-    { "id": 5, "name": "Laptop", "category": "Electronics", "price": 699.00 }
+    { "id": 1, "name": "Laptop", "category": "Electronics", "price": 899.00 },
+    { "id": 2, "name": "Smartphone", "category": "Electronics", "price": 599.00 }
   ],
   "totalElements": 47,
-  "totalPages": 10,
-  "pageSize": 5,
-  "currentPage": 1
+  "totalPages": 5,
+  "number": 0,
+  "size": 10
 }
 ```
 
-| **HTTP Status Codes** | **Description**                                                                            |
-|------------------------|--------------------------------------------------------------------------------------------|
-| `200 OK`              | Products list successfully retrieved.                                                      |
-| `400 BAD REQUEST`     | Invalid query parameters (e.g., negative page/size, invalid sort format).                   |
-| `500 INTERNAL SERVER ERROR` | An unexpected error occurred on the server.                                         |
+#### Status Codes
+- `200 OK` — Successful response.
+- `400 Bad Request` — Invalid query parameters (`page`, `size`, `sort`, etc.).
+- `500 Internal Server Error` — Unexpected errors.
 
 ---
 
 ## 4. Data Model Changes
 
-No changes to the database schema or JPA entities are needed for this enhancement. The existing `Product` entity and `products` table will be used as-is.
+No changes to the existing database structure or `Product` entity are required. However, new indexes should be considered on commonly queried fields (`category`, `price`) to optimize database queries.
+
+#### Example of database changes:
+```sql
+CREATE INDEX idx_product_category ON products (category);
+CREATE INDEX idx_product_price ON products (price);
+```
 
 ---
 
 ## 5. Service Layer Design
 
 ### Changes to `ProductService`
-- Update the `searchProducts` method in the `ProductService` interface and its implementation `ProductServiceImpl` to include a `Pageable` parameter and return a `Page<ProductResponseDto>`:
+The existing `searchProducts` method in `ProductService` will be updated to support pagination and sorting. The method signature will be updated as follows:
+
 ```java
-Page<ProductResponseDto> searchProducts(String category, BigDecimal minPrice, BigDecimal maxPrice, Pageable pageable);
+Page<ProductResponse> searchProducts(String category, BigDecimal minPrice, BigDecimal maxPrice, Pageable pageable);
 ```
 
-### Implementation Steps
-1. **Input Validation**: Verify that the `page`, `size`, and `sort` parameters in the `Pageable` object are valid (non-negative, sort format is valid).
-2. **Filter Logic**:
-   - Use existing `ProductSpecification` with `Specification.where()` to apply filters for category, `minPrice`, and `maxPrice`.
-3. **Pagination and Sorting**:
-   - Combine the filtering `Specification` with the `Pageable` parameter directly in the repository query:
-     ```java
-     Page<Product> productPage = productRepository.findAll(spec, pageable);
-     ```
-4. **Result Mapping**:
-   - Map the `Page<Product>` to `Page<ProductResponseDto>` using a utility method.
+#### Implementation Notes:
+- Extend existing logic to accept a `Pageable` object.
+- Use the combination of `Specification` and `Pageable` to query the repository.
+- Map the `Page<Product>` to `Page<ProductResponse>`.
+
+#### Updated Method Implementation:
+```java
+@Override
+@Transactional(readOnly = true)
+public Page<ProductResponse> searchProducts(String category, BigDecimal minPrice, BigDecimal maxPrice, Pageable pageable) {
+    Specification<Product> spec = Specification.where(null);
+    if (category != null) {
+        spec = spec.and(ProductSpecification.hasCategory(category));
+    }
+    if (minPrice != null) {
+        spec = spec.and(ProductSpecification.hasPriceGreaterThanOrEqual(minPrice));
+    }
+    if (maxPrice != null) {
+        spec = spec.and(ProductSpecification.hasPriceLessThanOrEqual(maxPrice));
+    }
+
+    Page<Product> productsPage = productRepository.findAll(spec, pageable);
+
+    return productsPage.map(product -> productMapper.toProductResponse(product));
+}
+```
 
 ---
 
 ## 6. Repository Layer
 
-### Existing Repository
-The `ProductRepository` already extends `JpaRepository` and `JpaSpecificationExecutor`:
-```java
-@Repository
-public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {}
-```
-
-### Required Specifications
-Update the `ProductSpecification` utility class to support flexible filters:
+### No Changes to Repository Interfaces
+The existing `ProductRepository` already extends `JpaRepository` and `JpaSpecificationExecutor`, which support dynamic queries and paging out of the box. The following call will retrieve paginated, sorted results:
 
 ```java
-public class ProductSpecification {
-
-    public static Specification<Product> hasCategory(String category) {
-        return (root, query, cb) -> 
-            category == null ? null : cb.equal(root.get("category"), category);
-    }
-
-    public static Specification<Product> hasPriceGreaterThanOrEqual(BigDecimal minPrice) {
-        return (root, query, cb) -> 
-            minPrice == null ? null : cb.greaterThanOrEqualTo(root.get("price"), minPrice);
-    }
-
-    public static Specification<Product> hasPriceLessThanOrEqual(BigDecimal maxPrice) {
-        return (root, query, cb) -> 
-            maxPrice == null ? null : cb.lessThanOrEqualTo(root.get("price"), maxPrice);
-    }
-}
+productRepository.findAll(spec, pageable);
 ```
 
-```java
-// Example Filter Combination
-Specification<Product> spec = Specification
-    .where(ProductSpecification.hasCategory(category))
-    .and(ProductSpecification.hasPriceGreaterThanOrEqual(minPrice))
-    .and(ProductSpecification.hasPriceLessThanOrEqual(maxPrice));
-```
+#### Updated Query Execution Process:
+1. Combine filtering criteria using `Specification`.
+2. Pass the combined `Specification` and `Pageable` to the repository.
+3. The database will execute a single optimized query for filtering, sorting, and pagination.
 
 ---
 
 ## 7. Security & Validation
 
 ### Input Validation
-1. **Pagination and Sorting Parameters:**
-   - `page` and `size` must be non-negative.
-   - Validate `size` to prevent unreasonably high values (e.g., set an upper limit of 100).
-   - Validate `sort` using a custom implementation or helper utilities such as `Sort.by(...)`.
+- Validation will ensure:
+  - `page` is non-negative.
+  - `size` is within an acceptable range (e.g., 1-100).
+  - `sort` is in the correct format (e.g., `field,asc` or `field,desc`).
 
-2. **Filter Values:**
-   - Ensure valid `category`, `minPrice`, and `maxPrice` formats using `@RequestParam` annotations.
-   - Example:
-     ```java
-     @RequestParam(required = false)
-     @Min(value = 0, message = "Price must be greater than or equal to 0")
-     BigDecimal minPrice
-     ```
+#### Controller Example
+```java
+@RestController
+@RequestMapping("/api/v1/products")
+@RequiredArgsConstructor
+@Validated
+public class ProductController {
 
-### Security
-1. No authentication/authorization changes.
-2. Ensure user input is sanitized to prevent SQL injection. By using parameterized queries through `JpaSpecificationExecutor`, this is handled.
+    private final ProductService productService;
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<Page<ProductResponse>>> getAllProducts(
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @PageableDefault(size = 20, sort = "id") Pageable pageable
+    ) {
+        Page<ProductResponse> response = productService.searchProducts(category, minPrice, maxPrice, pageable);
+        return ResponseEntity.ok(new ApiResponse<>("Products fetched successfully", response));
+    }
+}
+```
+
+### Authorization
+No additional role-based access control (RBAC) is required as this is a public API.
 
 ---
 
 ## 8. Error Handling
 
-| **Error**                      | **Exception**                | **HTTP Status** | **Message**                              |
-|---------------------------------|------------------------------|-----------------|------------------------------------------|
-| Invalid query parameters        | `MethodArgumentNotValidException` | 400            | "Invalid input values."                  |
-| Filtered resource not found     | `ResourceNotFoundException`  | 404             | "No products matching the criteria."     |
+### Expected Error Scenarios
+1. **Invalid Query Parameters**: 
+   - Invalid `page`, `size`, or `sort` format → `400 Bad Request`.
 
-`GlobalExceptionHandler` will be updated (if necessary) to map new exceptions to appropriate HTTP error responses.
+   Example:
+   ```json
+   {
+     "status": "BAD_REQUEST",
+     "message": "Invalid sort parameter. Expected format: 'field,asc/desc'.",
+     "data": null
+   }
+   ```
+
+2. **Service or Backend Errors**: 
+   - If an uncaught exception occurs, the `GlobalExceptionHandler` will return an HTTP 500 error.
 
 ---
 
 ## 9. Testing Strategy
 
 ### Unit Tests
-1. **ProductSpecificationTest**
-   - Test individual specifications (e.g., `hasCategory`, `hasPriceGreaterThanOrEqual`) using in-memory H2 and `@DataJpaTest`.
-2. **ProductServiceTest**
-   - Mock `ProductRepository` and ensure correct `Specification` and `Pageable` parameters are passed.
-   - Validate behavior when combining filters, pagination, and sorting logic.
+**Service Layer Tests:**
+- Verify `searchProducts` returns correct filtered, paginated, and sorted results.
+- Edge cases:
+  1. Filters return no matching results.
+  2. Pagination inputs are out of range.
+  3. Sort input is invalid.
 
 ### Integration Tests
-1. **ProductControllerTest**
-   - Use `@WebMvcTest` and `MockMvc` for testing the `/api/products` endpoint.
-   - Test combinations of parameters (e.g., filters + pagination + sorting).
-   - Use parameterized tests to cover edge cases.
-
-### Edge Cases
-- Combination of all filters with paging and sorting.
-- Empty result sets (valid inputs but no matching products).
-- Boundary/illegal values for `page`, `size`, `minPrice`, and `maxPrice` parameters.
+**Controller Tests:**
+- Validate:
+  - Correct transformation of query parameters into `Pageable`.
+  - Response structure and pagination metadata.
+- Coverage:
+  - Filtering combinations: `{category}`, `{minPrice, maxPrice}`.
+  - Paging combinations: `{page, size}` within range, out of range.
+  - Sorting combinations: `{sort=field,asc/desc}`, invalid sorting.
 
 ---
 
 ## 10. Open Questions
 
-1. Should we enforce limits on the maximum value of `size` (e.g., 100) to prevent massive data requests?
-2. Are there additional product fields that should be supported for sorting?
-3. Should the API allow sorting by multiple fields (e.g., `?sort=price,asc,name,desc`)? Would need proper handling. 
+1. Is there a maximum allowable value for the `size` parameter to prevent excessive responses? (Proposal: Limit `size` to 100.)
+2. Which product fields should be allowed for sorting? Should all fields be sortable, or only specific ones (e.g., `id`, `price`, `name`)?
+3. Are there any additional constraints on page-based retrieval (e.g., maximum page number)?
 
---- 
-
-This document outlines a comprehensive design plan for implementing the **Search, Filtering, Pagination, and Sorting** enhancement in a standardized and maintainable manner consistent with the overall project conventions.
+---
