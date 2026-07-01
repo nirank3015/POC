@@ -82,19 +82,30 @@ jobs:
           echo "$INSTRUCTIONS"         >> $GITHUB_ENV
           echo "HEREDOC"               >> $GITHUB_ENV
 
-          # Collect representative source files for context
-          # Entities, Services, Repositories, Controllers (max 30 files to stay within token limits)
+          # Collect ALL existing Java source files as context (byte-capped at 200KB)
           SOURCE_CONTEXT=""
-          for pattern in "*Entity.java" "*Repository.java" "*Service.java" "*ServiceImpl.java" "*Controller.java" "*Config.java" "*Exception*.java"; do
-            while IFS= read -r f; do
-              SOURCE_CONTEXT="${SOURCE_CONTEXT}\n\n### File: ${f}\n\`\`\`java\n$(cat "$f")\n\`\`\`"
-            done < <(find . -name "$pattern" 2>/dev/null | head -5)
-          done
+          TOTAL_SIZE=0
+          MAX_SIZE=200000
+          while IFS= read -r f; do
+            FSIZE=$(wc -c < "$f" 2>/dev/null || echo 0)
+            TOTAL_SIZE=$((TOTAL_SIZE + FSIZE))
+            if [ $TOTAL_SIZE -gt $MAX_SIZE ]; then
+              echo "WARNING: source context truncated at ${MAX_SIZE} byte limit"
+              break
+            fi
+            SOURCE_CONTEXT="${SOURCE_CONTEXT}\n\n### File: ${f}\n\`\`\`java\n$(cat "$f")\n\`\`\`"
+          done < <(find . -name "*.java" -path "*/src/main/java/*" 2>/dev/null | sort)
 
           echo "SOURCE_CONTEXT<<HEREDOC" >> $GITHUB_ENV
           printf "%b" "$SOURCE_CONTEXT"  >> $GITHUB_ENV
           echo ""                        >> $GITHUB_ENV
           echo "HEREDOC"                 >> $GITHUB_ENV
+
+          # Inventory of existing file paths — passed separately so the LLM knows what to modify vs create
+          EXISTING_FILE_PATHS=$(find . -name "*.java" -path "*/src/main/java/*" 2>/dev/null | sed 's|^\./||' | sort)
+          echo "EXISTING_FILE_PATHS<<HEREDOC" >> $GITHUB_ENV
+          echo "$EXISTING_FILE_PATHS"         >> $GITHUB_ENV
+          echo "HEREDOC"                      >> $GITHUB_ENV
 
           # pom.xml for dependency awareness
           POM_CONTENT=""
@@ -116,6 +127,7 @@ jobs:
       - name: Generate Spring Boot code via GitHub Models API
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          EXISTING_FILE_PATHS: ${{ env.EXISTING_FILE_PATHS }}
         run: |
           curl -sf -H "Authorization: Bearer $GH_TOKEN" \
             "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/generate_code.py" \
