@@ -8,7 +8,7 @@ An end-to-end automation pipeline that takes a plain Markdown requirement file
 and produces production-ready Spring Boot code via AI, with human review gates
 at every stage before merging to main.
 
-Technologies: GitHub Actions, GitHub Models API (GPT-4o, Claude Opus 4.7), Python, Bash, curl
+Technologies: GitHub Actions, GitHub Models API (GPT-4o), Python, Bash, curl
 
 
 ================================================================================
@@ -102,7 +102,7 @@ What it does:
   1. Checks out the feature branch
   2. Collects context: design doc, copilot-instructions.md, existing Java source
      files (Entities, Repositories, Services, Controllers), pom.xml
-  3. Calls Claude Opus 4.7 via GitHub Models API to generate production-ready Spring Boot code
+  3. Calls GPT-4o via GitHub Models API to generate production-ready Spring Boot code
   4. Parses the response and writes each file to its correct path in the repo
   5. Commits all generated files to the feature branch
   6. Closes the Design Review PR
@@ -198,7 +198,7 @@ AI MODEL
 ================================================================================
 
   Provider : GitHub Models API
-  Model    : GPT-4o for design/revision; Claude Opus 4.7 for code generation
+  Model    : GPT-4o
   Endpoint : https://models.inference.ai.azure.com/chat/completions
   Auth     : GH_PAT (no separate API key required)
   Max tokens per call : 8000

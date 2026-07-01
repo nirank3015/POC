@@ -4,7 +4,7 @@
 
 An end-to-end automation pipeline that takes a plain Markdown requirement file and produces production-ready Spring Boot code via AI, with human review gates at every stage before merging to `main`.
 
-**Technologies:** GitHub Actions · GitHub Models API (GPT-4o, Claude Opus 4.7) · Python · Bash · curl
+**Technologies:** GitHub Actions · GitHub Models API (GPT-4o) · Python · Bash · curl
 
 ---
 
@@ -143,7 +143,7 @@ bash ./scripts/kickoff.sh \
    - `copilot-instructions.md` (coding conventions)
    - Existing Java source files (Entities, Repositories, Services, Controllers)
    - `pom.xml` (dependency awareness)
-3. Calls **Claude Opus 4.7** to generate production-ready Spring Boot code
+3. Calls **GPT-4o** to generate production-ready Spring Boot code
 4. Parses response and writes each file to its correct path
 5. Commits all generated files to the feature branch
 6. Closes the Design Review PR
@@ -235,7 +235,7 @@ bash ./scripts/kickoff.sh \
 | Property | Value |
 |---|---|
 | Provider | GitHub Models API |
-| Model | GPT-4o for design/revision; Claude Opus 4.7 for code generation |
+| Model | GPT-4o |
 | Endpoint | `https://models.inference.ai.azure.com/chat/completions` |
 | Auth | `GH_PAT` (no separate API key needed) |
 | Max tokens | 8000 per call |
